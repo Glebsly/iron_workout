@@ -20,18 +20,15 @@ const KEYS = {
 
 // ── Низкоуровневые операции ───────────────────────────────────────────────────
 
-import { cloudStorage } from "@telegram-apps/sdk";
+//import { cloudStorage } from "@telegram-apps/sdk";
 
 async function storageGet(key) {
-  try {
-    return await cloudStorage.getItem(key);
-  } catch {
-    return null;
-  }
+  const result = await window.storage.get(key);
+  return result ? result.value : null;
 }
 
 async function storageSet(key, value) {
-  await cloudStorage.setItem(key, value);
+  await window.storage.set(key, value);
 }
 
 // ── Публичный API ─────────────────────────────────────────────────────────────
