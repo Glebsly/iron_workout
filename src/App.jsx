@@ -338,7 +338,7 @@ function CatalogScreen({ exercises, preferences, onLike, onDislike, onBack }) {
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const s = {
   root: { background: "#0f1117", minHeight: "100vh", color: "#f9fafb", fontFamily: "'DM Sans','Segoe UI',sans-serif", display: "flex", justifyContent: "center" },
-  page: { width: "100%", maxWidth: 420, padding: "20px 16px 28px", display: "flex", flexDirection: "column", minHeight: "100vh", boxSizing: "border-box" },
+  page: { width: "100%", padding: "20px 16px 28px", display: "flex", flexDirection: "column", minHeight: "100vh", boxSizing: "border-box" },
   homeHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 },
   appTitle: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.03em" },
   appSub: { fontSize: 13, color: "#6b7280", marginTop: 2 },
