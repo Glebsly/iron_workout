@@ -1,16 +1,110 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// App.jsx — только UI. Логика и данные в отдельных модулях.
+// App.jsx — один файл, никаких внешних зависимостей кроме React.
+// Хранилище: localStorage (работает везде, потом меняешь на Telegram CloudStorage)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from "react";
-import { ALL_EXERCISES, TYPE_LABELS, TYPE_COLORS, INTENSITY_LABEL } from "./exercises.js";
-import { generateWorkout, getPhaseLabel, applySessionFeedback, toggleLike, toggleDislike } from "./workout-logic.js";
-import { loadUserState, savePreferences, saveHistory, appendSession } from "./storage.js";
 
+// ─── STORAGE (localStorage — работает локально и на GitHub Pages) ─────────────
+// Когда переедешь в Telegram — замени get/set на cloudStorage.getItem/setItem
+const storage = {
+  get: (key) => { try { return localStorage.getItem(key); } catch { return null; } },
+  set: (key, val) => { try { localStorage.setItem(key, val); } catch {} },
+};
+
+function loadUserState() {
+  return {
+    preferences: JSON.parse(storage.get("iron_prefs") || '{"liked":[],"disliked":[]}'),
+    history: JSON.parse(storage.get("iron_history") || "[]"),
+  };
+}
+function savePreferences(p) { storage.set("iron_prefs", JSON.stringify(p)); }
+function saveHistory(h) { storage.set("iron_history", JSON.stringify(h.slice(-20))); }
+
+// ─── EXERCISES ────────────────────────────────────────────────────────────────
+const ALL_EXERCISES = [
+  { id: "kb_swing_two", name: "Махи гирей двумя руками", type: "kettlebell", muscles: ["glutes", "hamstrings", "lower_back", "core"], duration_sec: 40, rest_sec: 20, intensity: "high", weight_kg: 16, sets_reps: "3×15", notes: "Взрывной толчок бёдрами, не приседание" },
+  { id: "kb_swing_one", name: "Махи гирей одной рукой", type: "kettlebell", muscles: ["glutes", "hamstrings", "core", "shoulders"], duration_sec: 40, rest_sec: 20, intensity: "high", weight_kg: 16, sets_reps: "3×10 каждая рука", notes: "Смена рук в верхней точке или после подхода" },
+  { id: "kb_clean", name: "Подъём гири на грудь", type: "kettlebell", muscles: ["glutes", "hamstrings", "traps", "forearms"], duration_sec: 45, rest_sec: 25, intensity: "medium", weight_kg: 16, sets_reps: "3×8 каждая рука", notes: "Гиря должна мягко ложиться на предплечье, не бить" },
+  { id: "kb_press", name: "Жим гири стоя", type: "kettlebell", muscles: ["shoulders", "triceps", "core"], duration_sec: 40, rest_sec: 25, intensity: "medium", weight_kg: 16, sets_reps: "3×8 каждая рука", notes: "Напрячь кор и ягодицы, не прогибать поясницу" },
+  { id: "kb_goblet_squat", name: "Приседание с гирей (Goblet)", type: "kettlebell", muscles: ["quads", "glutes", "core", "upper_back"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: 16, sets_reps: "3×12", notes: "Колени разводить наружу, спина прямая" },
+  { id: "kb_rdl", name: "Румынская тяга с гирей", type: "kettlebell", muscles: ["hamstrings", "glutes", "lower_back"], duration_sec: 40, rest_sec: 25, intensity: "medium", weight_kg: 16, sets_reps: "3×10", notes: "Мягкий сгиб колен, тянуть бёдрами назад" },
+  { id: "kb_snatch", name: "Рывок гири", type: "kettlebell", muscles: ["glutes", "hamstrings", "shoulders", "core", "forearms"], duration_sec: 45, rest_sec: 30, intensity: "high", weight_kg: 16, sets_reps: "3×8 каждая рука", notes: "Требует техники — гиря не должна бить запястье" },
+  { id: "kb_row", name: "Тяга гири в наклоне", type: "kettlebell", muscles: ["lats", "upper_back", "biceps", "core"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: 16, sets_reps: "3×10 каждая рука", notes: "Локоть тянуть вдоль тела, не разводить в сторону" },
+  { id: "kb_deadlift", name: "Становая тяга с гирей", type: "kettlebell", muscles: ["glutes", "hamstrings", "lower_back", "traps"], duration_sec: 40, rest_sec: 25, intensity: "medium", weight_kg: 16, sets_reps: "3×10", notes: "Гиря между стоп, спина нейтральна" },
+  { id: "kb_farmers_carry", name: "Прогулка фермера", type: "kettlebell", muscles: ["forearms", "traps", "core", "glutes"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: 16, sets_reps: "3×40 сек", notes: "Плечи назад, шаг уверенный" },
+  { id: "kb_lunge", name: "Выпады с гирей", type: "kettlebell", muscles: ["quads", "glutes", "hamstrings", "core"], duration_sec: 45, rest_sec: 20, intensity: "medium", weight_kg: 16, sets_reps: "3×8 каждая нога", notes: "Гиря у груди, колено не выходит за носок" },
+  { id: "kb_windmill", name: "Мельница с гирей", type: "kettlebell", muscles: ["core", "obliques", "shoulders", "hamstrings"], duration_sec: 45, rest_sec: 25, intensity: "medium", weight_kg: 16, sets_reps: "3×6 каждая сторона", notes: "Взгляд на гирю, движение медленное и контролируемое" },
+  { id: "kb_halo", name: "Гало с гирей", type: "kettlebell", muscles: ["shoulders", "upper_back", "core"], duration_sec: 30, rest_sec: 15, intensity: "low", weight_kg: 16, sets_reps: "3×8 в каждую сторону", notes: "Круговое движение вокруг головы, держать гирю за рога" },
+  { id: "pushup", name: "Отжимания", type: "bodyweight", muscles: ["chest", "triceps", "shoulders", "core"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: null, sets_reps: "3×12–15", notes: "Тело прямое, локти 45° от тела" },
+  { id: "pushup_wide", name: "Широкие отжимания", type: "bodyweight", muscles: ["chest", "shoulders", "triceps"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: null, sets_reps: "3×12", notes: "Акцент на грудь" },
+  { id: "plank", name: "Планка", type: "bodyweight", muscles: ["core", "shoulders", "glutes"], duration_sec: 30, rest_sec: 15, intensity: "low", weight_kg: null, sets_reps: "3×30–45 сек", notes: "Не поднимать таз, дышать ровно" },
+  { id: "side_plank", name: "Боковая планка", type: "bodyweight", muscles: ["obliques", "core", "glutes"], duration_sec: 30, rest_sec: 15, intensity: "low", weight_kg: null, sets_reps: "2×30 сек каждая сторона", notes: "Таз не провисает" },
+  { id: "hollow_body", name: "Hollow Body Hold", type: "bodyweight", muscles: ["core", "hip_flexors"], duration_sec: 30, rest_sec: 15, intensity: "medium", weight_kg: null, sets_reps: "3×20–30 сек", notes: "Поясница прижата к полу, ноги и руки вытянуты" },
+  { id: "glute_bridge", name: "Ягодичный мостик", type: "bodyweight", muscles: ["glutes", "hamstrings", "core"], duration_sec: 35, rest_sec: 15, intensity: "low", weight_kg: null, sets_reps: "3×15", notes: "Сжимать ягодицы в верхней точке" },
+  { id: "mountain_climber", name: "Скалолаз", type: "bodyweight", muscles: ["core", "shoulders", "hip_flexors"], duration_sec: 40, rest_sec: 20, intensity: "high", weight_kg: null, sets_reps: "3×30 сек", notes: "Бёдра не поднимать, темп высокий" },
+  { id: "bear_crawl", name: "Медвежья походка", type: "bodyweight", muscles: ["core", "shoulders", "quads", "hip_flexors"], duration_sec: 40, rest_sec: 20, intensity: "medium", weight_kg: null, sets_reps: "3×10м вперёд-назад", notes: "Колени 2–3 см от пола, спина горизонтально" },
+  { id: "burpee", name: "Бёрпи", type: "bodyweight", muscles: ["full_body"], duration_sec: 40, rest_sec: 30, intensity: "high", weight_kg: null, sets_reps: "3×8–10", notes: "Контролировать приземление, не горбиться" },
+  { id: "mob_thoracic_rotation", name: "Ротация грудного отдела", type: "mobility", muscles: ["upper_back", "obliques"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "10 в каждую сторону", notes: "Лёжа на боку, колени 90°, верхняя рука тянется назад" },
+  { id: "mob_hip_circle", name: "Круговые движения тазом", type: "mobility", muscles: ["hip_flexors", "glutes", "lower_back"], duration_sec: 45, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "10 в каждую сторону", notes: "Стоя, руки на поясе, большой круг" },
+  { id: "mob_ankle_circle", name: "Вращение голеностопа", type: "mobility", muscles: ["ankles"], duration_sec: 30, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "10 в каждую сторону на каждую ногу", notes: "Сидя или стоя на одной ноге" },
+  { id: "mob_shoulder_circle", name: "Вращение плечами", type: "mobility", muscles: ["shoulders", "upper_back"], duration_sec: 30, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "10 вперёд + 10 назад", notes: "Медленно, с полной амплитудой" },
+  { id: "mob_90_90", name: "90/90 — переключение", type: "mobility", muscles: ["hip_flexors", "glutes", "hip_external_rotators"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "5–8 переключений в каждую сторону", notes: "Сидя, оба колена 90°, переваливаться из стороны в сторону" },
+  { id: "mob_world_greatest", name: "Лучшее упражнение в мире", type: "mobility", muscles: ["hip_flexors", "thoracic_spine", "hamstrings", "glutes"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "5 повторений каждая сторона", notes: "Выпад + рука к потолку + разворот корпуса" },
+  { id: "mob_cat_cow", name: "Кошка-корова", type: "mobility", muscles: ["spine", "core", "lower_back"], duration_sec: 45, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "10 циклов", notes: "На четвереньках, дышать в ритм движения" },
+  { id: "mob_deep_squat_hold", name: "Глубокий присед", type: "mobility", muscles: ["ankles", "hip_flexors", "lower_back", "glutes"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "2×30–60 сек", notes: "Можно держаться за дверной косяк для баланса" },
+  { id: "mob_inchworm", name: "Инчворм", type: "mobility", muscles: ["hamstrings", "shoulders", "core", "spine"], duration_sec: 45, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "6–8 повторений", notes: "Из стойки — руки на пол — планка — обратно" },
+  { id: "str_hip_flexor", name: "Растяжка сгибателей бедра", type: "stretching", muscles: ["hip_flexors", "quads"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "60 сек каждая сторона", notes: "Низкий выпад, таз вперёд, не прогибать поясницу" },
+  { id: "str_hamstring", name: "Растяжка задней поверхности бедра", type: "stretching", muscles: ["hamstrings"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "60 сек каждая нога", notes: "Лёжа на спине, нога вертикально, тянуть к себе" },
+  { id: "str_pigeon", name: "Поза голубя", type: "stretching", muscles: ["glutes", "hip_external_rotators", "hip_flexors"], duration_sec: 90, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "90 сек каждая сторона", notes: "Не заваливаться на одну сторону, сидеть ровно" },
+  { id: "str_thoracic_open", name: "Раскрытие грудного отдела", type: "stretching", muscles: ["upper_back", "chest", "shoulders"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "60 сек", notes: "Лёжа на ролике или полотенце под лопатками" },
+  { id: "str_lat", name: "Растяжка широчайшей", type: "stretching", muscles: ["lats", "upper_back"], duration_sec: 45, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "45 сек каждая сторона", notes: "Стоя у стены, рука вверх, боковой наклон" },
+  { id: "str_seated_twist", name: "Скручивание сидя", type: "stretching", muscles: ["spine", "obliques", "glutes"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "60 сек каждая сторона", notes: "Нога через колено, скручиваться от пупка" },
+  { id: "str_child_pose", name: "Поза ребёнка", type: "stretching", muscles: ["lower_back", "lats", "glutes", "spine"], duration_sec: 60, rest_sec: 0, intensity: "low", weight_kg: null, sets_reps: "60 сек", notes: "Руки вперёд, лоб на полу, дышать в спину" },
+];
+
+const TYPE_LABELS = { kettlebell: "Гиря", bodyweight: "Тело", mobility: "Мобильность", stretching: "Растяжка" };
+const TYPE_COLORS = { kettlebell: "#e85d26", bodyweight: "#2563eb", mobility: "#16a34a", stretching: "#7c3aed" };
+const INTENSITY_LABEL = { high: "Высокая", medium: "Средняя", low: "Низкая" };
+
+// ─── WORKOUT LOGIC ────────────────────────────────────────────────────────────
+function generateWorkout(preferences, history) {
+  const { liked, disliked } = preferences;
+  const recentIds = history.flatMap((s) => s.exerciseIds).slice(-30);
+  const score = (e) => {
+    let s = liked.includes(e.id) ? 40 : 0;
+    s -= recentIds.filter((id) => id === e.id).length * 20;
+    return s + Math.random() * 15;
+  };
+  const pick = (pool, n) => [...pool].sort((a, b) => score(b) - score(a)).slice(0, n);
+  const avail = ALL_EXERCISES.filter((e) => !disliked.includes(e.id));
+  return [
+    ...pick(avail.filter((e) => e.type === "mobility"), 3),
+    ...pick(avail.filter((e) => e.type === "kettlebell" || e.type === "bodyweight"), 5),
+    ...pick(avail.filter((e) => e.type === "stretching"), 3),
+  ];
+}
+
+function getPhaseLabel(idx) {
+  if (idx < 3) return "Разминка";
+  if (idx < 8) return "Основная часть";
+  return "Заминка";
+}
+
+function applyFeedback(prefs, feedback) {
+  const p = { liked: [...prefs.liked], disliked: [...prefs.disliked] };
+  Object.entries(feedback).forEach(([id, v]) => {
+    if (v === "like") { p.liked = [...new Set([...p.liked, id])]; p.disliked = p.disliked.filter((x) => x !== id); }
+    if (v === "dislike") { p.disliked = [...new Set([...p.disliked, id])]; p.liked = p.liked.filter((x) => x !== id); }
+  });
+  return p;
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState("loading");
-  const [preferences, setPreferences] = useState({ liked: [], disliked: [] });
-  const [history, setHistory] = useState([]);
+  const [screen, setScreen] = useState("home");
+  const [preferences, setPreferences] = useState(() => loadUserState().preferences);
+  const [history, setHistory] = useState(() => loadUserState().history);
   const [workout, setWorkout] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [phase, setPhase] = useState("exercise");
@@ -18,23 +112,17 @@ export default function App() {
   const [timerActive, setTimerActive] = useState(false);
   const [sessionFeedback, setSessionFeedback] = useState({});
 
-  useEffect(() => {
-    loadUserState().then(({ preferences: p, history: h }) => {
-      setPreferences(p);
-      setHistory(h);
-      setScreen("home");
-    });
-  }, []);
-
+  // таймер
   useEffect(() => {
     if (!timerActive || timer <= 0) { if (timerActive && timer <= 0) setTimerActive(false); return; }
     const t = setTimeout(() => setTimer((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [timerActive, timer]);
 
+  // авто-переход после отдыха
   useEffect(() => {
     if (phase === "rest" && timer === 0 && !timerActive && screen === "workout") {
-      const t = setTimeout(() => advanceExercise(), 500);
+      const t = setTimeout(() => advance(), 500);
       return () => clearTimeout(t);
     }
   }, [phase, timer, timerActive, screen]);
@@ -46,45 +134,45 @@ export default function App() {
     setScreen("workout");
   }, [preferences, history]);
 
-  const advanceExercise = useCallback(() => {
+  const advance = useCallback(() => {
     setCurrentIdx((idx) => {
       const next = idx + 1;
-      if (next < workout.length) { setPhase("exercise"); setTimer(workout[next].duration_sec); setTimerActive(false); return next; }
-      else { finishWorkout(); return idx; }
+      if (next < workout.length) {
+        setPhase("exercise"); setTimer(workout[next].duration_sec); setTimerActive(false);
+        return next;
+      }
+      finish(); return idx;
     });
   }, [workout]);
 
   const handleNext = useCallback(() => {
     const ex = workout[currentIdx];
     if (phase === "exercise" && ex?.rest_sec > 0) { setPhase("rest"); setTimer(ex.rest_sec); setTimerActive(true); return; }
-    if (currentIdx < workout.length - 1) advanceExercise();
-    else finishWorkout();
-  }, [phase, currentIdx, workout, advanceExercise]);
+    if (currentIdx < workout.length - 1) advance(); else finish();
+  }, [phase, currentIdx, workout]);
 
-  const finishWorkout = useCallback(() => {
-    const newPrefs = applySessionFeedback(preferences, sessionFeedback);
-    const newHistory = appendSession(history, workout.map((e) => e.id));
+  const finish = useCallback(() => {
+    const newPrefs = applyFeedback(preferences, sessionFeedback);
+    const newHistory = [...history, { date: new Date().toISOString(), exerciseIds: workout.map((e) => e.id) }].slice(-20);
     setPreferences(newPrefs); setHistory(newHistory);
     savePreferences(newPrefs); saveHistory(newHistory);
     setScreen("done");
   }, [preferences, sessionFeedback, history, workout]);
 
-  const handleFeedback = (id, type) =>
-    setSessionFeedback((prev) => ({ ...prev, [id]: prev[id] === type ? null : type }));
+  const setFeedback = (id, type) => setSessionFeedback((p) => ({ ...p, [id]: p[id] === type ? null : type }));
 
-  const handleCatalogLike = (id) => { const p = toggleLike(preferences, id); setPreferences(p); savePreferences(p); };
-  const handleCatalogDislike = (id) => { const p = toggleDislike(preferences, id); setPreferences(p); savePreferences(p); };
+  const updatePrefs = (newP) => { setPreferences(newP); savePreferences(newP); };
 
   const ex = workout[currentIdx];
 
-  if (screen === "loading") return <div style={s.root}><div style={s.center}><div style={s.spinner} /></div></div>;
   if (screen === "home") return <HomeScreen history={history} preferences={preferences} onStart={startWorkout} onCatalog={() => setScreen("catalog")} />;
-  if (screen === "workout" && ex) return <WorkoutScreen exercise={ex} phase={phase} timer={timer} timerActive={timerActive} currentIdx={currentIdx} total={workout.length} feedback={sessionFeedback[ex.id]} onToggleTimer={() => { if (timer === 0) setTimer(ex.duration_sec); setTimerActive((a) => !a); }} onNext={handleNext} onFeedback={(type) => handleFeedback(ex.id, type)} onQuit={() => setScreen("home")} />;
+  if (screen === "workout" && ex) return <WorkoutScreen exercise={ex} phase={phase} timer={timer} timerActive={timerActive} currentIdx={currentIdx} total={workout.length} feedback={sessionFeedback[ex.id]} onToggleTimer={() => { if (timer === 0) setTimer(ex.duration_sec); setTimerActive((a) => !a); }} onNext={handleNext} onFeedback={(type) => setFeedback(ex.id, type)} onQuit={() => setScreen("home")} />;
   if (screen === "done") return <DoneScreen workout={workout} sessionFeedback={sessionFeedback} onHome={() => setScreen("home")} onAgain={startWorkout} />;
-  if (screen === "catalog") return <CatalogScreen exercises={ALL_EXERCISES} preferences={preferences} onLike={handleCatalogLike} onDislike={handleCatalogDislike} onBack={() => setScreen("home")} />;
+  if (screen === "catalog") return <CatalogScreen exercises={ALL_EXERCISES} preferences={preferences} onLike={(id) => { const p = { liked: preferences.liked.includes(id) ? preferences.liked.filter((x) => x !== id) : [...new Set([...preferences.liked, id])], disliked: preferences.disliked.filter((x) => x !== id) }; updatePrefs(p); }} onDislike={(id) => { const p = { disliked: preferences.disliked.includes(id) ? preferences.disliked.filter((x) => x !== id) : [...new Set([...preferences.disliked, id])], liked: preferences.liked.filter((x) => x !== id) }; updatePrefs(p); }} onBack={() => setScreen("home")} />;
   return null;
 }
 
+// ─── SCREENS ──────────────────────────────────────────────────────────────────
 function HomeScreen({ history, preferences, onStart, onCatalog }) {
   const last = history[history.length - 1];
   return (
@@ -101,9 +189,9 @@ function HomeScreen({ history, preferences, onStart, onCatalog }) {
         ))}
       </div>
       {last && (
-        <div style={s.lastWorkout}>
+        <div style={s.card}>
           <div style={s.sectionLabel}>Последняя тренировка</div>
-          <div style={s.lastDate}>{new Date(last.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{new Date(last.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}</div>
           <div style={s.tagRow}>{last.exerciseIds.slice(0, 5).map((id) => { const e = ALL_EXERCISES.find((x) => x.id === id); return e ? <span key={id} style={{ ...s.miniTag, background: TYPE_COLORS[e.type] + "22", color: TYPE_COLORS[e.type] }}>{e.name}</span> : null; })}</div>
         </div>
       )}
@@ -130,25 +218,23 @@ function WorkoutScreen({ exercise, phase, timer, timerActive, currentIdx, total,
         </div>
       </div>
       <div style={s.phaseLabel}>{isRest ? "Отдых" : getPhaseLabel(currentIdx)}</div>
-      <div style={{ ...s.exCard, borderColor: isRest ? "#374151" : TYPE_COLORS[exercise.type] }}>
+      <div style={{ ...s.card, border: `1.5px solid ${isRest ? "#374151" : TYPE_COLORS[exercise.type]}`, marginBottom: 20 }}>
         {isRest ? (
           <div style={s.restContent}>
             <div style={{ fontSize: 44, marginBottom: 10 }}>💨</div>
             <div style={{ fontSize: 22, fontWeight: 700 }}>Отдых</div>
             <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 6 }}>Следующее: {exercise.name}</div>
           </div>
-        ) : (
-          <>
-            <div style={s.exMeta}>
-              <span style={{ ...s.typeBadge, background: TYPE_COLORS[exercise.type] + "22", color: TYPE_COLORS[exercise.type] }}>{TYPE_LABELS[exercise.type]}</span>
-              {exercise.weight_kg && <span style={s.weightBadge}>⚖ {exercise.weight_kg} кг</span>}
-              <span style={{ ...s.intensityDot, background: exercise.intensity === "high" ? "#ef4444" : exercise.intensity === "medium" ? "#f59e0b" : "#22c55e", marginLeft: "auto" }} />
-            </div>
-            <div style={s.exName}>{exercise.name}</div>
-            <div style={s.exReps}>{exercise.sets_reps}</div>
-            <div style={s.exNotes}>{exercise.notes}</div>
-          </>
-        )}
+        ) : (<>
+          <div style={s.exMeta}>
+            <span style={{ ...s.typeBadge, background: TYPE_COLORS[exercise.type] + "22", color: TYPE_COLORS[exercise.type] }}>{TYPE_LABELS[exercise.type]}</span>
+            {exercise.weight_kg && <span style={s.weightBadge}>⚖ {exercise.weight_kg} кг</span>}
+            <span style={{ ...s.intensityDot, background: exercise.intensity === "high" ? "#ef4444" : exercise.intensity === "medium" ? "#f59e0b" : "#22c55e", marginLeft: "auto" }} />
+          </div>
+          <div style={s.exName}>{exercise.name}</div>
+          <div style={s.exReps}>{exercise.sets_reps}</div>
+          <div style={s.exNotes}>{exercise.notes}</div>
+        </>)}
       </div>
       <div style={s.timerRow}>
         <div style={{ ...s.timerDisplay, color: isRest ? "#6b7280" : timer < 10 && timerActive ? "#ef4444" : "#f9fafb" }}>{fmt(timer)}</div>
@@ -158,8 +244,8 @@ function WorkoutScreen({ exercise, phase, timer, timerActive, currentIdx, total,
       </div>
       {!isRest && (
         <div style={s.feedRow}>
-          {[{ type: "dislike", label: "Убрать", as: s.dislikeActive }, { type: "like", label: "Нравится", as: s.likeActive }].map(({ type, label, as }) => (
-            <button key={type} style={{ ...s.feedBtn, ...(feedback === type ? as : {}) }} onClick={() => onFeedback(type)}>
+          {[{ type: "dislike", label: "Убрать" }, { type: "like", label: "Нравится" }].map(({ type, label }) => (
+            <button key={type} style={{ ...s.feedBtn, ...(feedback === type ? (type === "like" ? s.likeActive : s.dislikeActive) : {}) }} onClick={() => onFeedback(type)}>
               {type === "like"
                 ? <svg viewBox="0 0 24 24" fill={feedback === "like" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4.72A2.31 2.31 0 012 20V13a2.31 2.31 0 012.72-2H7"/></svg>
                 : <svg viewBox="0 0 24 24" fill={feedback === "dislike" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>}
@@ -170,7 +256,7 @@ function WorkoutScreen({ exercise, phase, timer, timerActive, currentIdx, total,
       )}
       <div style={{ flex: 1 }} />
       <button style={s.nextBtn} onClick={onNext}>
-        {currentIdx === total - 1 && !isRest ? "Завершить тренировку ✓" : isRest ? "Пропустить отдых →" : "Следующее →"}
+        {currentIdx === total - 1 && !isRest ? "Завершить ✓" : isRest ? "Пропустить отдых →" : "Следующее →"}
       </button>
     </div></div>
   );
@@ -229,13 +315,13 @@ function CatalogScreen({ exercises, preferences, onLike, onDislike, onBack }) {
           const isLiked = preferences.liked.includes(ex.id);
           const isDisliked = preferences.disliked.includes(ex.id);
           return (
-            <div key={ex.id} style={{ ...s.catalogCard, opacity: isDisliked ? 0.4 : 1 }}>
+            <div key={ex.id} style={{ ...s.card, opacity: isDisliked ? 0.4 : 1, marginBottom: 10 }}>
               <div style={s.exMeta}>
                 <span style={{ ...s.typeBadge, background: TYPE_COLORS[ex.type] + "22", color: TYPE_COLORS[ex.type] }}>{TYPE_LABELS[ex.type]}</span>
                 {ex.weight_kg && <span style={s.weightBadge}>⚖ {ex.weight_kg} кг</span>}
               </div>
-              <div style={s.catalogName}>{ex.name}</div>
-              <div style={s.catalogMeta}>{ex.sets_reps} · {INTENSITY_LABEL[ex.intensity]}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{ex.name}</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>{ex.sets_reps} · {INTENSITY_LABEL[ex.intensity]}</div>
               <div style={s.exNotes}>{ex.notes}</div>
               <div style={s.catalogActions}>
                 <button style={{ ...s.catBtn, ...(isDisliked ? s.catBtnDislikeActive : {}) }} onClick={() => onDislike(ex.id)}>{isDisliked ? "✕ Скрыто" : "✕ Скрыть"}</button>
@@ -249,11 +335,10 @@ function CatalogScreen({ exercises, preferences, onLike, onDislike, onBack }) {
   );
 }
 
+// ─── STYLES ───────────────────────────────────────────────────────────────────
 const s = {
   root: { background: "#0f1117", minHeight: "100vh", color: "#f9fafb", fontFamily: "'DM Sans','Segoe UI',sans-serif", display: "flex", justifyContent: "center" },
   page: { width: "100%", maxWidth: 420, padding: "20px 16px 28px", display: "flex", flexDirection: "column", minHeight: "100vh", boxSizing: "border-box" },
-  center: { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100vh" },
-  spinner: { width: 12, height: 12, borderRadius: "50%", background: "#e85d26" },
   homeHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 },
   appTitle: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.03em" },
   appSub: { fontSize: 13, color: "#6b7280", marginTop: 2 },
@@ -262,9 +347,8 @@ const s = {
   statCard: { flex: 1, background: "#1a1d27", borderRadius: 12, padding: "14px 12px", textAlign: "center" },
   statNum: { fontSize: 26, fontWeight: 700 },
   statLabel: { fontSize: 11, color: "#6b7280", marginTop: 2, textTransform: "uppercase", letterSpacing: "0.05em" },
-  lastWorkout: { background: "#1a1d27", borderRadius: 14, padding: 16 },
+  card: { background: "#1a1d27", borderRadius: 14, padding: 16 },
   sectionLabel: { fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 },
-  lastDate: { fontSize: 15, fontWeight: 600, marginBottom: 10 },
   tagRow: { display: "flex", flexWrap: "wrap", gap: 6 },
   miniTag: { fontSize: 11, padding: "3px 8px", borderRadius: 20, fontWeight: 500 },
   primaryBtn: { width: "100%", padding: "16px 0", background: "#e85d26", color: "#fff", border: "none", borderRadius: 14, fontSize: 17, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
@@ -276,7 +360,6 @@ const s = {
   progressFill: { height: "100%", background: "#e85d26", borderRadius: 2, transition: "width 0.4s ease" },
   progressText: { fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" },
   phaseLabel: { fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 },
-  exCard: { background: "#1a1d27", borderRadius: 18, padding: "22px 20px", border: "1.5px solid", marginBottom: 20 },
   exMeta: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12 },
   typeBadge: { fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" },
   weightBadge: { fontSize: 11, color: "#9ca3af", background: "#111827", padding: "3px 8px", borderRadius: 20 },
@@ -305,10 +388,7 @@ const s = {
   filterRow: { display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" },
   filterBtn: { padding: "6px 12px", background: "#1a1d27", border: "none", borderRadius: 20, color: "#9ca3af", cursor: "pointer", fontSize: 12, fontWeight: 500 },
   filterBtnActive: { background: "#e85d26", color: "#fff" },
-  catalogList: { display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 20 },
-  catalogCard: { background: "#1a1d27", borderRadius: 14, padding: "14px 14px 12px" },
-  catalogName: { fontSize: 16, fontWeight: 700, marginBottom: 4 },
-  catalogMeta: { fontSize: 12, color: "#6b7280", marginBottom: 6 },
+  catalogList: { display: "flex", flexDirection: "column", overflowY: "auto", paddingBottom: 20 },
   catalogActions: { display: "flex", gap: 8, marginTop: 10 },
   catBtn: { flex: 1, padding: "7px 0", background: "#111827", border: "none", borderRadius: 8, color: "#9ca3af", cursor: "pointer", fontSize: 12, fontWeight: 500 },
   catBtnLikeActive: { background: "#e85d26", color: "#fff" },
