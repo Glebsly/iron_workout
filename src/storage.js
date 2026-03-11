@@ -8,77 +8,81 @@
 // откуда берутся данные.
 //
 // Как переключить на Telegram CloudStorage:
-// // import { cloudStorage } from "@telegram-apps/sdk";
-// Затем замени window.storage.get(key) → await cloudStorage.getItem(key)
-//window.storage.set(key, v) → await cloudStorage.setItem(key, v)
+//   import { cloudStorage } from "@telegram-apps/sdk";
+//   Затем замени window.storage.get(key)  → await cloudStorage.getItem(key)
+//              window.storage.set(key, v) → await cloudStorage.setItem(key, v)
 // ─────────────────────────────────────────────────────────────────────────────
+
 const KEYS = {
-PREFS: "iron_prefs",
-HISTORY: "iron_history",
+  PREFS: "iron_prefs",
+  HISTORY: "iron_history",
 };
+
 // ── Низкоуровневые операции ───────────────────────────────────────────────────
+
+import { cloudStorage } from "@telegram-apps/sdk";
+
 async function storageGet(key) {
-try {
-const result = await window.storage.get(key);
-return result ? result.value : null;
-} catch {
-return null;
+  try {
+    return await cloudStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
-}
+
 async function storageSet(key, value) {
-try {
-await window.storage.set(key, value);
-} catch (e) {
-console.error("storage.set failed:", e);
+  await cloudStorage.setItem(key, value);
 }
-}
+
 // ── Публичный API ─────────────────────────────────────────────────────────────
-/**
-* Загрузить всё состояние пользователя при старте приложения.
-*/
-//@returns {{ preferences: {liked: string[], disliked: string[]}, history: Array }}
 
+/**
+ * Загрузить всё состояние пользователя при старте приложения.
+ * @returns {{ preferences: {liked: string[], disliked: string[]}, history: Array }}
+ */
 export async function loadUserState() {
-const [prefsRaw, historyRaw] = await Promise.all([
-storageGet(KEYS.PREFS),
-storageGet(KEYS.HISTORY),
-]);
-return {
-preferences: prefsRaw
-? JSON.parse(prefsRaw)
-: { liked: [], disliked: [] },
-history: historyRaw
-? JSON.parse(historyRaw)
-: [],
-};
-}
-/**
+  const [prefsRaw, historyRaw] = await Promise.all([
+    storageGet(KEYS.PREFS),
+    storageGet(KEYS.HISTORY),
+  ]);
 
-* Сохранить предпочтения пользователя (лайки / дизлайки).
-*/
-//@param {{ liked: string[], disliked: string[] }} preferences
+  return {
+    preferences: prefsRaw
+      ? JSON.parse(prefsRaw)
+      : { liked: [], disliked: [] },
+    history: historyRaw
+      ? JSON.parse(historyRaw)
+      : [],
+  };
+}
+
+/**
+ * Сохранить предпочтения пользователя (лайки / дизлайки).
+ * @param {{ liked: string[], disliked: string[] }} preferences
+ */
 export async function savePreferences(preferences) {
-await storageSet(KEYS.PREFS, JSON.stringify(preferences));
+  await storageSet(KEYS.PREFS, JSON.stringify(preferences));
 }
-/**
-* Сохранить историю тренировок. Храним последние 20 сессий.
-*/
-// @param {Array} history
 
-export async function saveHistory(history) {
-const trimmed = history.slice(-20);
-await storageSet(KEYS.HISTORY, JSON.stringify(trimmed));
-}
 /**
-* Добавить запись о завершённой тренировке в историю.
-* @param {Array} currentHistory
-* @param {string[]} exerciseIds — список id упражнений в порядке выполнения
-* @returns {Array} новая история (для обновления state)
-*/
+ * Сохранить историю тренировок. Храним последние 20 сессий.
+ * @param {Array} history
+ */
+export async function saveHistory(history) {
+  const trimmed = history.slice(-20);
+  await storageSet(KEYS.HISTORY, JSON.stringify(trimmed));
+}
+
+/**
+ * Добавить запись о завершённой тренировке в историю.
+ * @param {Array} currentHistory
+ * @param {string[]} exerciseIds — список id упражнений в порядке выполнения
+ * @returns {Array} новая история (для обновления state)
+ */
 export function appendSession(currentHistory, exerciseIds) {
-const session = {
-date: new Date().toISOString(),
-exerciseIds,
-};
-return [...currentHistory, session].slice(-20);
+  const session = {
+    date: new Date().toISOString(),
+    exerciseIds,
+  };
+  return [...currentHistory, session].slice(-20);
 }
