@@ -119,9 +119,10 @@ export default function App() {
   const updatePrefs = (newP) => { setPreferences(newP); savePreferences(newP); };
 
   const ex = workout[currentIdx];
+  const prevEx = workout[currentIdx - 1] || null;
 
   if (screen === "home") return <HomeScreen history={history} preferences={preferences} onStart={startWorkout} onCatalog={() => setScreen("catalog")} />;
-  if (screen === "workout" && ex) return <WorkoutScreen exercise={ex} phase={phase} timer={timer} timerActive={timerActive} currentIdx={currentIdx} total={workout.length} feedback={sessionFeedback[ex.id]} onToggleTimer={() => { if (timer === 0) setTimer(ex.duration_sec); setTimerActive((a) => !a); }} onNext={handleNext} onFeedback={(type) => setFeedback(ex.id, type)} onQuit={() => setScreen("home")} />;
+  if (screen === "workout" && ex) return <WorkoutScreen exercise={ex} prevExercise={prevEx} phase={phase} timer={timer} timerActive={timerActive} currentIdx={currentIdx} total={workout.length} feedback={prevEx ? sessionFeedback[prevEx.id] : null} onToggleTimer={() => { if (timer === 0) setTimer(ex.duration_sec); setTimerActive((a) => !a); }} onNext={handleNext} onFeedback={(type) => prevEx && setFeedback(prevEx.id, type)} onQuit={() => setScreen("home")} />;
   if (screen === "done") return <DoneScreen workout={workout} sessionFeedback={sessionFeedback} onHome={() => setScreen("home")} onAgain={startWorkout} />;
   if (screen === "catalog") return <CatalogScreen exercises={ALL_EXERCISES} preferences={preferences} onLike={(id) => { const p = { liked: preferences.liked.includes(id) ? preferences.liked.filter((x) => x !== id) : [...new Set([...preferences.liked, id])], disliked: preferences.disliked.filter((x) => x !== id) }; updatePrefs(p); }} onDislike={(id) => { const p = { disliked: preferences.disliked.includes(id) ? preferences.disliked.filter((x) => x !== id) : [...new Set([...preferences.disliked, id])], liked: preferences.liked.filter((x) => x !== id) }; updatePrefs(p); }} onBack={() => setScreen("home")} />;
   return null;
@@ -160,69 +161,151 @@ function HomeScreen({ history, preferences, onStart, onCatalog }) {
   );
 }
 
-function WorkoutScreen({ exercise, phase, timer, timerActive, currentIdx, total, feedback, onToggleTimer, onNext, onFeedback, onQuit }) {
+function WorkoutScreen({ exercise, prevExercise, phase, timer, timerActive, currentIdx, total, feedback, onToggleTimer, onNext, onFeedback, onQuit }) {
+  const [sheetOpen, setSheetOpen] = useState(false);
   const isRest = phase === "rest";
+  const hasTimer = /сек|мин/.test(exercise.sets_reps) || (exercise.duration_sec > 0 && !/×/.test(exercise.sets_reps));
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const accent = TYPE_COLORS[exercise.type];
+  const thumbEmoji = exercise.type === "kettlebell" ? "🏋️" : exercise.type === "bodyweight" ? "💪" : exercise.type === "mobility" ? "🔄" : "🧘";
+  const timerColor = isRest ? "#6b7280" : timer < 10 && timerActive ? "#ef4444" : "#f9fafb";
+
   return (
-    <div style={s.root}><div style={s.page}>
-      <div style={s.topBar}>
-        <button style={s.quitBtn} onClick={onQuit}>✕</button>
-        <div style={s.progressWrap}>
-          <div style={s.progressBg}><div style={{ ...s.progressFill, width: `${(currentIdx / total) * 100}%` }} /></div>
-          <span style={s.progressText}>{currentIdx + 1} / {total}</span>
+    <div style={{ ...s.root, display: "flex", flexDirection: "column", height: "100vh" }}>
+
+      {/* Скроллируемый контент */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 0" }}>
+
+        {/* Прогресс */}
+        <div style={s.topBar}>
+          <button style={s.quitBtn} onClick={onQuit}>✕</button>
+          <div style={s.progressWrap}>
+            <div style={s.progressBg}><div style={{ ...s.progressFill, width: `${(currentIdx / total) * 100}%` }} /></div>
+            <span style={s.progressText}>{currentIdx + 1} / {total}</span>
+          </div>
         </div>
-      </div>
-      <div style={s.phaseLabel}>{isRest ? "Отдых" : getPhaseLabel(currentIdx)}</div>
-      <div style={{ ...s.card, border: `1.5px solid ${isRest ? "#374151" : TYPE_COLORS[exercise.type]}`, marginBottom: 20 }}>
-        {isRest ? (
-          <div style={s.restContent}>
-            <div style={{ fontSize: 44, marginBottom: 10 }}>💨</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>Отдых</div>
-            <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 6 }}>Следующее: {exercise.name}</div>
-          </div>
-        ) : (<>
-          {exercise.image_url ? (
-            <img src={exercise.image_url} alt={exercise.name} style={s.exImage} />
-          ) : (
-            <div style={{ ...s.exImagePlaceholder, background: TYPE_COLORS[exercise.type] + "11" }}>
-              <span style={{ fontSize: 36 }}>
-                {exercise.type === "kettlebell" ? "🏋️" : exercise.type === "bodyweight" ? "💪" : exercise.type === "mobility" ? "🔄" : "🧘"}
-              </span>
+
+        <div style={s.phaseLabel}>{getPhaseLabel(currentIdx)}</div>
+
+        {/* Карточка упражнения — тап открывает шит */}
+        <div
+          style={{ ...s.card, border: `1.5px solid ${isRest ? "#374151" : accent}`, opacity: isRest ? 0.6 : 1, cursor: "pointer", transition: "opacity 0.3s" }}
+          onClick={() => setSheetOpen(true)}
+        >
+          <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+            {/* Мини картинка */}
+            <div style={{ flexShrink: 0, width: 72, height: 72, borderRadius: 10, overflow: "hidden", background: accent + "11", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {exercise.image_url
+                ? <img src={exercise.image_url} alt={exercise.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontSize: 28 }}>{thumbEmoji}</span>}
             </div>
-          )}
-          <div style={s.exMeta}>
-            <span style={{ ...s.typeBadge, background: TYPE_COLORS[exercise.type] + "22", color: TYPE_COLORS[exercise.type] }}>{TYPE_LABELS[exercise.type]}</span>
-            {exercise.weight_kg && <span style={s.weightBadge}>⚖ {exercise.weight_kg} кг</span>}
-            <span style={{ ...s.intensityDot, background: exercise.intensity === "high" ? "#ef4444" : exercise.intensity === "medium" ? "#f59e0b" : "#22c55e", marginLeft: "auto" }} />
+            {/* Текст */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <span style={{ ...s.typeBadge, background: accent + "22", color: accent }}>{TYPE_LABELS[exercise.type]}</span>
+                {exercise.weight_kg && <span style={s.weightBadge}>⚖ {exercise.weight_kg} кг</span>}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2, marginBottom: 4 }}>{exercise.name}</div>
+              <div style={{ fontSize: 14, color: "#e85d26", fontWeight: 600 }}>{exercise.sets_reps}</div>
+            </div>
+            {/* Иконка "тап для деталей" */}
+            <div style={{ color: "#4b5563", fontSize: 18, flexShrink: 0 }}>⋯</div>
           </div>
-          <div style={s.exName}>{exercise.name}</div>
-          <div style={s.exReps}>{exercise.sets_reps}</div>
-          <div style={s.exNotes}>{exercise.notes}</div>
-        </>)}
+        </div>
+
+        {/* Баннер отдыха — появляется поверх когда isRest */}
+        {isRest && (
+          <div style={{ background: "#1a1d27", border: "1.5px solid #374151", borderRadius: 14, padding: "16px 18px", marginTop: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>💨</span>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>Отдых</span>
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", color: "#6b7280" }}>{fmt(timer)}</div>
+            </div>
+            {prevExercise && (
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>Тапни карточку чтобы оценить</div>
+            )}
+          </div>
+        )}
       </div>
-      <div style={s.timerRow}>
-        <div style={{ ...s.timerDisplay, color: isRest ? "#6b7280" : timer < 10 && timerActive ? "#ef4444" : "#f9fafb" }}>{fmt(timer)}</div>
-        <button style={{ ...s.timerBtn, background: timerActive ? "#374151" : "#e85d26" }} onClick={onToggleTimer}>
-          {timerActive ? "⏸ Пауза" : timer === 0 ? "↺ Сброс" : "▶ Старт"}
+
+      {/* Фиксированная нижняя зона */}
+      <div style={{ padding: "14px 16px 24px", borderTop: "1px solid #1f2937", background: "#0f1117" }}>
+        {isRest ? (
+          /* Таймер отдыха */
+          <div style={s.timerRow}>
+            <div style={{ ...s.timerDisplay, color: "#6b7280" }}>{fmt(timer)}</div>
+            <button style={{ ...s.timerBtn, background: timerActive ? "#374151" : "#4b5563" }} onClick={onToggleTimer}>
+              {timerActive ? "⏸ Пауза" : timer === 0 ? "↺ Сброс" : "▶ Старт"}
+            </button>
+          </div>
+        ) : hasTimer ? (
+          /* Таймер упражнения */
+          <div style={s.timerRow}>
+            <div style={{ ...s.timerDisplay, color: timerColor }}>{fmt(timer)}</div>
+            <button style={{ ...s.timerBtn, background: timerActive ? "#374151" : "#e85d26" }} onClick={onToggleTimer}>
+              {timerActive ? "⏸ Пауза" : timer === 0 ? "↺ Сброс" : "▶ Старт"}
+            </button>
+          </div>
+        ) : null}
+        <button style={s.nextBtn} onClick={onNext}>
+          {currentIdx === total - 1 ? "Завершить ✓" : isRest ? "Пропустить отдых →" : "Готово →"}
         </button>
       </div>
-      {!isRest && (
-        <div style={s.feedRow}>
-          {[{ type: "dislike", label: "Убрать" }, { type: "like", label: "Нравится" }].map(({ type, label }) => (
-            <button key={type} style={{ ...s.feedBtn, ...(feedback === type ? (type === "like" ? s.likeActive : s.dislikeActive) : {}) }} onClick={() => onFeedback(type)}>
-              {type === "like"
-                ? <svg viewBox="0 0 24 24" fill={feedback === "like" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4.72A2.31 2.31 0 012 20V13a2.31 2.31 0 012.72-2H7"/></svg>
-                : <svg viewBox="0 0 24 24" fill={feedback === "dislike" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>}
-              {label}
-            </button>
-          ))}
+
+      {/* Bottom sheet — детали упражнения */}
+      {sheetOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }} onClick={() => setSheetOpen(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} />
+          <div
+            style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#161920", borderRadius: "20px 20px 0 0", padding: "20px 16px 40px", maxHeight: "85vh", overflowY: "auto" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Ручка */}
+            <div style={{ width: 40, height: 4, background: "#374151", borderRadius: 2, margin: "0 auto 20px" }} />
+
+            {/* Большая картинка */}
+            <div style={{ width: "100%", aspectRatio: "1/1", borderRadius: 14, overflow: "hidden", background: accent + "11", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+              {exercise.image_url
+                ? <img src={exercise.image_url} alt={exercise.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontSize: 64 }}>{thumbEmoji}</span>}
+            </div>
+
+            {/* Название и мета */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <span style={{ ...s.typeBadge, background: accent + "22", color: accent }}>{TYPE_LABELS[exercise.type]}</span>
+              {exercise.weight_kg && <span style={s.weightBadge}>⚖ {exercise.weight_kg} кг</span>}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6, letterSpacing: "-0.02em" }}>{exercise.name}</div>
+            <div style={{ fontSize: 16, color: "#e85d26", fontWeight: 600, marginBottom: 16 }}>{exercise.sets_reps}</div>
+
+            {/* Заметка */}
+            {exercise.notes && (
+              <div style={{ display: "flex", gap: 8, padding: "12px 14px", background: "#111827", borderRadius: 10, marginBottom: 20 }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>💡</span>
+                <span style={{ fontSize: 14, color: "#9ca3af", lineHeight: 1.6 }}>{exercise.notes}</span>
+              </div>
+            )}
+
+            {/* Лайк/дизлайк в шите (для упражнения) */}
+            <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Оценить упражнение</div>
+            <div style={s.feedRow}>
+              {[{ type: "dislike", label: "Убрать из тренировок" }, { type: "like", label: "Нравится" }].map(({ type, label }) => (
+                <button key={type} style={{ ...s.feedBtn, ...(feedback === type ? (type === "like" ? s.likeActive : s.dislikeActive) : {}) }} onClick={() => onFeedback(type)}>
+                  {type === "like"
+                    ? <svg viewBox="0 0 24 24" fill={feedback === "like" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4.72A2.31 2.31 0 012 20V13a2.31 2.31 0 012.72-2H7"/></svg>
+                    : <svg viewBox="0 0 24 24" fill={feedback === "dislike" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>}
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <button style={{ ...s.nextBtn, marginTop: 16 }} onClick={() => setSheetOpen(false)}>Закрыть</button>
+          </div>
         </div>
       )}
-      <div style={{ flex: 1 }} />
-      <button style={s.nextBtn} onClick={onNext}>
-        {currentIdx === total - 1 && !isRest ? "Завершить ✓" : isRest ? "Пропустить отдых →" : "Следующее →"}
-      </button>
-    </div></div>
+    </div>
   );
 }
 
