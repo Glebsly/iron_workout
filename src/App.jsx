@@ -3,7 +3,7 @@
 // Хранилище: localStorage (работает везде, потом меняешь на Telegram CloudStorage)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { ALL_EXERCISES, TYPE_LABELS, TYPE_COLORS, INTENSITY_LABEL } from "./exercises.js";
 
 // ─── STORAGE (localStorage — работает локально и на GitHub Pages) ─────────────
@@ -445,6 +445,33 @@ function HomeScreen({ history, preferences, onStart, onCatalog, onSettings, onVi
   );
 }
 
+// ─── DRAG TO CLOSE ────────────────────────────────────────────────────────────
+function DragSheet({ onClose, style, children }) {
+  const startY = useRef(null);
+  const ref = useRef(null);
+  return (
+    <div
+      ref={ref}
+      style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#161920", borderRadius: "20px 20px 0 0", touchAction: "pan-x", transition: "transform 0.15s", ...style }}
+      onTouchStart={(e) => { startY.current = e.touches[0].clientY; }}
+      onTouchMove={(e) => {
+        const dy = e.touches[0].clientY - (startY.current ?? 0);
+        if (dy > 0 && ref.current) ref.current.style.transform = `translateY(${dy}px)`;
+      }}
+      onTouchEnd={(e) => {
+        const dy = e.changedTouches[0].clientY - (startY.current ?? 0);
+        if (ref.current) ref.current.style.transform = "";
+        startY.current = null;
+        if (dy > 80) onClose();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+
+
 function WorkoutScreen({ exercise, nextExercise, currentIdx, total, timer, timerActive, feedback, weights, onUpdateWeight, onToggleTimer, onNext, onFeedback, onQuit }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingWeight, setEditingWeight] = useState(false);
@@ -543,7 +570,7 @@ function WorkoutScreen({ exercise, nextExercise, currentIdx, total, timer, timer
       {sheetOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} onClick={() => setSheetOpen(false)} />
-          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#161920", borderRadius: "20px 20px 0 0", padding: "20px 16px 40px", maxHeight: "80vh", overflowY: "auto" }}>
+          <DragSheet onClose={() => setSheetOpen(false)} style={{ padding: "20px 16px 40px", maxHeight: "80vh", overflowY: "auto" }}>
             <div style={{ width: 40, height: 4, background: "#374151", borderRadius: 2, margin: "0 auto 20px" }} />
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               <span style={{ ...s.typeBadge, background: accent + "22", color: accent }}>{TYPE_LABELS[exercise.type]}</span>
@@ -575,7 +602,7 @@ function WorkoutScreen({ exercise, nextExercise, currentIdx, total, timer, timer
               ))}
             </div>
             <button style={{ ...s.nextBtn, marginTop: 16 }} onClick={() => setSheetOpen(false)}>Закрыть</button>
-          </div>
+          </DragSheet>
         </div>
       )}
     </div>
